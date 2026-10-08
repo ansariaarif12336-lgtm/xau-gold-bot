@@ -3,9 +3,8 @@ import requests
 import threading
 import time
 from flask import Flask
-import math
 
-BOT_TOKEN = "8529280835:AAE2SaRSOYszjRox0hcM0sGCCnPHPuKrVJI"
+BOT_TOKEN = "8529280835:AAFb9zTXDzmY7pAK2hUNRatRdXA7lKZEow8"
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
@@ -18,15 +17,12 @@ def get_coingecko_data():
         price_url = "https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd"
         price_data = requests.get(price_url, timeout=15).json()
         price = float(price_data['pax-gold']['usd'])
-
         chart_url = "https://api.coingecko.com/api/v3/coins/pax-gold/market_chart?vs_currency=usd&days=7"
         chart = requests.get(chart_url, timeout=15).json()
         prices = [p[1] for p in chart['prices']]
-
         low_7d = min(prices)
         high_7d = max(prices)
         last_prices = prices[-100:] if len(prices) > 100 else prices
-
         def calc_rsi(prices_list, period=14):
             if len(prices_list) < period+1:
                 return 50.0
@@ -50,14 +46,12 @@ def get_coingecko_data():
             rs = avg_gain / avg_loss
             rsi = 100 - (100 / (1 + rs))
             return round(rsi, 1)
-
         rsi = calc_rsi(last_prices, 14)
         retrace_618 = high_7d - 0.618 * (high_7d - low_7d)
         dist_retrace = abs(price - retrace_618) / price * 100
         target_buy = 4091
         dist_target = abs(price - target_buy) / price * 100
         buy_triggered = dist_target < 0.5 and rsi < 30
-
         return {
             "price": price,
             "rsi": rsi,
@@ -83,23 +77,14 @@ def format_msg(data):
         rsi_status = "Oversold"
     else:
         rsi_status = "No RSI extreme"
-    buy_status = "TRIGGERED 🚀 BUY" if data["buy_triggered"] else "NOT TRIGGERED"
-    not_met = f"Not met: price is {data['dist_target']:.2f}% from $4091; RSI-14 is {'below' if rsi<30 else 'above'} 30 ({rsi})."
-    msg = f"""PAXG: ${price:,.2f} USD
-Source: CoinGecko · Updated {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}
-Hourly RSI-14: {rsi} — {rsi_status}
-Exhaustion check: No 24-hour RSI divergence
-7-day range: ${data['low_7d']:,.2f}-${data['high_7d']:,.2f}
-0.618 retracement: ${data['retrace_618']:,.2f} ({data['dist_retrace']:.2f}% from current price)
-Rule-based buy signal: {buy_status}
-{not_met if not data['buy_triggered'] else 'Conditions met: Near $4091 and RSI oversold.'}
-Technical indicator only; not financial advice.
-No trades are placed."""
+    buy_status = "TRIGGERED BUY" if data["buy_triggered"] else "NOT TRIGGERED"
+    not_met = f"Not met: price is {data['dist_target']:.2f}% from $4091; RSI-14 is above 30 ({rsi})."
+    msg = f"PAXG: ${price:,.2f} USD\nSource: CoinGecko - Updated {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\nHourly RSI-14: {rsi} - {rsi_status}\n7-day range: ${data['low_7d']:,.2f}-${data['high_7d']:,.2f}\n0.618 retracement: ${data['retrace_618']:,.2f} ({data['dist_retrace']:.2f}% from current)\nRule-based buy signal: {buy_status}\n{not_met if not data['buy_triggered'] else 'Conditions met.'}\nTechnical indicator only; not financial advice."
     return msg
 
 @bot.message_handler(commands=['start'])
 def handle_start(m):
-    bot.reply_to(m, "Gold Scalp Robot Live! ✅\n\n/paxg - Gold Price + Signal\n/xau - Same as PAXG\n/xag - Silver Price\n\nBot 24/7 Live on Render")
+    bot.reply_to(m, "Gold Scalp Robot Live! \n\n/paxg - Gold Price + Signal\n/xau - Same as PAXG\n/xag - Silver Price")
 
 @bot.message_handler(commands=['paxg','xau','gold'])
 def handle_paxg(m):
@@ -117,11 +102,6 @@ def handle_xag(m):
         bot.reply_to(m, f"XAG / Silver: ${price} USD\nSource: CoinGecko")
     except:
         bot.reply_to(m, "Silver price fetch failed, try again.")
-
-@bot.message_handler(func=lambda m: True)
-def handle_all(m):
-    if m.text and m.text.startswith('/'):
-        bot.reply_to(m, "Use /paxg or /xau or /xag")
 
 def run_bot():
     while True:
