@@ -29,17 +29,11 @@ def paxg(m):
         bot.reply_to(m, f"Error: {e}")
 
 def run_bot():
-    print("Starting Bot...", flush=True)
+    print("Bot polling started...", flush=True)
     bot.infinity_polling()
 
+threading.Thread(target=run_bot, daemon=True).start()
+
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-def start_flask():
-    threading.Thread(target=run_bot, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-start_flask()
