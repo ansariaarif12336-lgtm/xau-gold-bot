@@ -1,0 +1,1 @@
+# xau-gold-bot
