@@ -4,25 +4,38 @@ import threading
 import time
 from flask import Flask
 
-BOT_TOKEN = "8529280835:AAFb9zTXDzmY7pAK2hUNRatRdXA7lKZEow8"
+BOT_TOKEN = "8529280835:AAGMLiYBZpQ18H2XObFkC9Rmblih9A9CcqQ"
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Gold Scalp Robot is Live!"
-
 def get_coingecko_data():
     try:
-        price_url = "https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd"
-        price_data = requests.get(price_url, timeout=15).json()
-        price = float(price_data['pax-gold']['usd'])
-        chart_url = "https://api.coingecko.com/api/v3/coins/pax-gold/market_chart?vs_currency=usd&days=7"
-        chart = requests.get(chart_url, timeout=15).json()
-        prices = [p[1] for p in chart['prices']]
+        # 1st Try: Binance - sabse fast
+        try:
+            price_url = "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
+            price_data = requests.get(price_url, timeout=10).json()
+            price = float(price_data['price'])
+
+            # Chart ke liye Binance klines
+            chart_url = "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=168"
+            chart = requests.get(chart_url, timeout=15).json()
+            prices = [float(c[4]) for c in chart]
+        except:
+            # 2nd Try: CoinGecko Backup
+            price_url = "https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd"
+            price_data = requests.get(price_url, timeout=15).json()
+            price = float(price_data['pax-gold']['usd'])
+            chart_url = "https://api.coingecko.com/api/v3/coins/pax-gold/market_chart?vs_currency=usd&days=7"
+            chart = requests.get(chart_url, timeout=15).json()
+            prices = [p[1] for p in chart['prices']]
+
         low_7d = min(prices)
         high_7d = max(prices)
         last_prices = prices[-100:] if len(prices) > 100 else prices
+
         def calc_rsi(prices_list, period=14):
             if len(prices_list) < period+1:
                 return 50.0
@@ -36,83 +49,16 @@ def get_coingecko_data():
                 else:
                     gains.append(0)
                     losses.append(abs(diff))
-            avg_gain = sum(gains[:period]) / period
-            avg_loss = sum(losses[:period]) / period
-            for i in range(period, len(gains)):
-                avg_gain = (avg_gain * (period-1) + gains[i]) / period
-                avg_loss = (avg_loss * (period-1) + losses[i]) / period
+            avg_gain = sum(gains[-period:]) / period
+            avg_loss = sum(losses[-period:]) / period
             if avg_loss == 0:
-                return 100.0
+                return 70.0
             rs = avg_gain / avg_loss
-            rsi = 100 - (100 / (1 + rs))
-            return round(rsi, 1)
-        rsi = calc_rsi(last_prices, 14)
-        retrace_618 = high_7d - 0.618 * (high_7d - low_7d)
-        dist_retrace = abs(price - retrace_618) / price * 100
-        target_buy = 4091
-        dist_target = abs(price - target_buy) / price * 100
-        buy_triggered = dist_target < 0.5 and rsi < 30
-        return {
-            "price": price,
-            "rsi": rsi,
-            "low_7d": low_7d,
-            "high_7d": high_7d,
-            "retrace_618": retrace_618,
-            "dist_retrace": dist_retrace,
-            "dist_target": dist_target,
-            "buy_triggered": buy_triggered
-        }
+            return 100 - (100 / (1 + rs))
+
+        rsi = calc_rsi(last_prices)
+        return price, low_7d, high_7d, rsi, last_prices
+
     except Exception as e:
-        print(f"Data error: {e}")
+        print(f"Price fetch error: {e}")
         return None
-
-def format_msg(data):
-    if not data:
-        return "Price fetch failed. Try again after 1 min."
-    price = data["price"]
-    rsi = data["rsi"]
-    if rsi > 70:
-        rsi_status = "Overbought"
-    elif rsi < 30:
-        rsi_status = "Oversold"
-    else:
-        rsi_status = "No RSI extreme"
-    buy_status = "TRIGGERED BUY" if data["buy_triggered"] else "NOT TRIGGERED"
-    not_met = f"Not met: price is {data['dist_target']:.2f}% from $4091; RSI-14 is above 30 ({rsi})."
-    msg = f"PAXG: ${price:,.2f} USD\nSource: CoinGecko - Updated {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\nHourly RSI-14: {rsi} - {rsi_status}\n7-day range: ${data['low_7d']:,.2f}-${data['high_7d']:,.2f}\n0.618 retracement: ${data['retrace_618']:,.2f} ({data['dist_retrace']:.2f}% from current)\nRule-based buy signal: {buy_status}\n{not_met if not data['buy_triggered'] else 'Conditions met.'}\nTechnical indicator only; not financial advice."
-    return msg
-
-@bot.message_handler(commands=['start'])
-def handle_start(m):
-    bot.reply_to(m, "Gold Scalp Robot Live! \n\n/paxg - Gold Price + Signal\n/xau - Same as PAXG\n/xag - Silver Price")
-
-@bot.message_handler(commands=['paxg','xau','gold'])
-def handle_paxg(m):
-    bot.send_chat_action(m.chat.id, 'typing')
-    data = get_coingecko_data()
-    bot.reply_to(m, format_msg(data))
-
-@bot.message_handler(commands=['xag','silver'])
-def handle_xag(m):
-    try:
-        bot.send_chat_action(m.chat.id, 'typing')
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=kinesis-silver&vs_currencies=usd"
-        r = requests.get(url, timeout=10).json()
-        price = r.get('kinesis-silver', {}).get('usd', 'N/A')
-        bot.reply_to(m, f"XAG / Silver: ${price} USD\nSource: CoinGecko")
-    except:
-        bot.reply_to(m, "Silver price fetch failed, try again.")
-
-def run_bot():
-    while True:
-        try:
-            print("Starting bot polling...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
-        except Exception as e:
-            print(f"Polling crashed: {e}")
-            time.sleep(10)
-
-threading.Thread(target=run_bot, daemon=True).start()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
